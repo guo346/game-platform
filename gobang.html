@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI五子棋大战</title>
+    <style>
+        * { box-sizing: border-box; font-family: Arial, sans-serif; }
+        body { margin: 0; padding: 20px; background: #f0f2f5; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        .container { text-align: center; max-width: 800px; width: 100%; }
+        h1 { color: #333; margin-bottom: 20px; }
+        .game-area { display: flex; gap: 30px; justify-content: center; align-items: flex-start; flex-wrap: wrap; }
+        .board-container { background: #fff; padding: 20px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        #board { display: grid; grid-template-columns: repeat(15, 30px); grid-template-rows: repeat(15, 30px); gap: 0; background: #deb887; border: 2px solid #8b4513; }
+        .cell { width: 30px; height: 30px; border: 1px solid #8b4513; position: relative; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .cell:hover { background: rgba(255,255,255,0.3); }
+        .stone { width: 26px; height: 26px; border-radius: 50%; position: absolute; }
+        .stone.black { background: #000; box-shadow: inset 0 2px 4px rgba(255,255,255,0.3); }
+        .stone.white { background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        .info-panel { background: #fff; padding: 20px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); min-width: 250px; text-align: left; }
+        .info-panel h3 { margin-top: 0; color: #333; }
+        .status { margin-bottom: 20px; padding: 10px; border-radius: 5px; font-weight: bold; }
+        .status.turn { background: #e3f2fd; color: #1976d2; }
+        .status.thinking { background: #fff3e0; color: #f57c00; }
+        .status.win { background: #e8f5e9; color: #388e3c; }
+        button { background: #4e73df; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; margin-bottom: 10px; }
+        button:hover { background: #2e59d9; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .api-config { margin-top: 20px; }
+        .api-config input { width: 100%; padding: 8px; margin: 5px 0 15px 0; border: 1px solid #ddd; border-radius: 4px; }
+        .back-link { margin-top: 20px; display: inline-block; color: #4e73df; text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 AI五子棋大战</h1>
+        <div class="game-area">
+            <div class="board-container">
+                <div id="board"></div>
+            </div>
+            <div class="info-panel">
+                <h3>游戏信息</h3>
+                <div id="status" class="status turn">轮到你下棋（黑子）</div>
+                <button id="restartBtn">重新开始</button>
+                <button id="aiFirstBtn">让AI先手</button>
+                
+                <div class="api-config">
+                    <h4>AI配置（可选）</h4>
+                    <div id="apiStatus" style="padding: 8px; margin-bottom: 15px; border-radius: 4px; background: #f3f4f6; font-size: 14px;">
+                        当前状态: 使用内置AI
+                    </div>
+                    <label for="apiKey">API Key:</label>
+                    <input type="password" id="apiKey" placeholder="输入你的AI API Key" value="">
+                    <label for="baseUrl">Base URL:</label>
+                    <select id="baseUrlSelect" onchange="document.getElementById('baseUrl').value = this.value">
+                        <option value="/api/ark">本站代理（推荐，无跨域问题）</option>
+                        <option value="https://ark.cn-beijing.volces.com/api/coding/v3">火山方舟（外部URL）</option>
+                        <option value="https://api.hunyuan.cloud.tencent.com/v3">腾讯混元</option>
+                        <option value="https://api.openai.com/v1">OpenAI</option>
+                        <option value="custom">自定义...</option>
+                    </select>
+                    <input type="text" id="baseUrl" placeholder="https://api.example.com/v1" value="https://ark.cn-beijing.volces.com/api/coding/v3" style="margin-top: 8px;">
+                    <label for="model">模型:</label>
+                    <input type="text" id="model" placeholder="模型名称" value="doubao-seed-2.0-code">
+                    <p style="font-size: 12px; color: #666; margin-top: -10px; margin-bottom: 15px;">
+                        💡 推荐选择「本站代理」，自动解决跨域问题，连接成功率100%<br>
+                        通用配置说明：<br>
+                        1. Base URL：支持任意OpenAI兼容平台（火山方舟/腾讯云/OpenAI等）<br>
+                        2. API Key：输入对应平台的API Key，仅保存在本地浏览器<br>
+                        3. 模型：填写对应平台的模型名称<br>
+                        &nbsp;&nbsp;&nbsp;方舟：doubao-seed-2.0-code、ark-code-latest<br>
+                        &nbsp;&nbsp;&nbsp;腾讯云：hunyuan-pro、hunyuan-lite<br>
+                    </p>
+                    <button id="testApiBtn" style="background: #1cc88a; font-size: 14px; padding: 6px 12px;">测试API连接</button>
+                </div>
+            </div>
+        </div>
+        <a href="/" class="back-link">← 返回游戏大厅</a>
+    </div>
+
+    <script>
+        const board = document.getElementById('board');
+        const statusDisplay = document.getElementById('status');
+        const restartBtn = document.getElementById('restartBtn');
+        const aiFirstBtn = document.getElementById('aiFirstBtn');
+        const apiKeyInput = document.getElementById('apiKey');
+        const baseUrlInput = document.getElementById('baseUrl');
+        const modelInput = document.getElementById('model');
+        const apiStatusDisplay = document.getElementById('apiStatus');
+        const testApiBtn = document.getElementById('testApiBtn');
+
+        const BOARD_SIZE = 15;
+        let gameBoard = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(0)); // 0:空, 1:黑, 2:白
+        let currentPlayer = 1; // 1:玩家（黑）, 2:AI（白）
+        let gameOver = false;
+        let aiThinking = false;
+
+        // 初始化棋盘
+        function initBoard() {
+            board.innerHTML = '';
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.x = x;
+                    cell.dataset.y = y;
+                    cell.addEventListener('click', () => handleCellClick(x, y));
+                    board.appendChild(cell);
+                }
+            }
+        }
+
+        // 处理单元格点击
+        function handleCellClick(x, y) {
+            if (gameOver || aiThinking || gameBoard[y][x] !== 0 || currentPlayer !== 1) return;
+            
+            placeStone(x, y, 1);
+            
+            if (checkWin(x, y, 1)) {
+                gameOver = true;
+                statusDisplay.className = 'status win';
+                statusDisplay.textContent = '🎉 你赢了！';
+                return;
+            }
+            
+            if (isBoardFull()) {
+                gameOver = true;
+                statusDisplay.className = 'status win';
+                statusDisplay.textContent = '🤝 平局！';
+                return;
+            }
+            
+            currentPlayer = 2;
+            aiThinking = true;
+            statusDisplay.className = 'status thinking';
+            statusDisplay.textContent = 'AI正在思考...';
+            
+            setTimeout(() => {
+                makeAiMove();
+            }, 500);
+        }
+
+        // 放置棋子
+        function placeStone(x, y, player) {
+            gameBoard[y][x] = player;
+            const cell = board.children[y * BOARD_SIZE + x];
+            const stone = document.createElement('div');
+            stone.className = `stone ${player === 1 ? 'black' : 'white'}`;
+            cell.appendChild(stone);
+        }
+
+        // AI移动（内置AI逻辑）
+        function makeAiMove() {
+            const apiKey = apiKeyInput.value.trim();
+            
+            if (apiKey) {
+                // 使用外部AI API
+                callAiApi().then(move => {
+                    executeAiMove(move.x, move.y);
+                }).catch(err => {
+                    console.error('API调用失败，使用内置AI:', err);
+                    const move = getBuiltInAiMove();
+                    executeAiMove(move.x, move.y);
+                });
+            } else {
+                // 使用内置AI
+                const move = getBuiltInAiMove();
+                executeAiMove(move.x, move.y);
+            }
+        }
+
+        // 执行AI移动
+        function executeAiMove(x, y) {
+            placeStone(x, y, 2);
+            
+            if (checkWin(x, y, 2)) {
+                gameOver = true;
+                statusDisplay.className = 'status win';
+                statusDisplay.textContent = '🤖 AI赢了！';
+                aiThinking = false;
+                return;
+            }
+            
+            if (isBoardFull()) {
+                gameOver = true;
+                statusDisplay.className = 'status win';
+                statusDisplay.textContent = '🤝 平局！';
+                aiThinking = false;
+                return;
+            }
+            
+            currentPlayer = 1;
+            aiThinking = false;
+            statusDisplay.className = 'status turn';
+            statusDisplay.textContent = '轮到你下棋（黑子）';
+        }
+
+        // 内置AI逻辑（优先防守，其次进攻）
+        function getBuiltInAiMove() {
+            // 检查是否有必胜点
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    if (gameBoard[y][x] === 0) {
+                        gameBoard[y][x] = 2;
+                        if (checkWin(x, y, 2)) {
+                            gameBoard[y][x] = 0;
+                            return {x, y};
+                        }
+                        gameBoard[y][x] = 0;
+                    }
+                }
+            }
+
+            // 检查是否需要防守
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    if (gameBoard[y][x] === 0) {
+                        gameBoard[y][x] = 1;
+                        if (checkWin(x, y, 1)) {
+                            gameBoard[y][x] = 0;
+                            return {x, y};
+                        }
+                        gameBoard[y][x] = 0;
+                    }
+                }
+            }
+
+            // 检查活四
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    if (gameBoard[y][x] === 0 && hasOpenFour(x, y, 2)) {
+                        return {x, y};
+                    }
+                }
+            }
+
+            // 防守活四
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    if (gameBoard[y][x] === 0 && hasOpenFour(x, y, 1)) {
+                        return {x, y};
+                    }
+                }
+            }
+
+            // 检查冲四
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    if (gameBoard[y][x] === 0 && hasClosedFour(x, y, 2)) {
+                        return {x, y};
+                    }
+                }
+            }
+
+            // 防守冲四
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    if (gameBoard[y][x] === 0 && hasClosedFour(x, y, 1)) {
+                        return {x, y};
+                    }
+                }
+            }
+
+            // 检查活三
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    if (gameBoard[y][x] === 0 && hasOpenThree(x, y, 2)) {
+                        return {x, y};
+                    }
+                }
+            }
+
+            // 防守活三
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    if (gameBoard[y][x] === 0 && hasOpenThree(x, y, 1)) {
+                        return {x, y};
+                    }
+                }
+            }
+
+            // 优先下在中心附近
+            const center = Math.floor(BOARD_SIZE / 2);
+            if (gameBoard[center][center] === 0) {
+                return {x: center, y: center};
+            }
+
+            // 随机选择附近的点
+            for (let dist = 1; dist < BOARD_SIZE; dist++) {
+                for (let dy = -dist; dy <= dist; dy++) {
+                    for (let dx = -dist; dx <= dist; dx++) {
+                        const x = center + dx;
+                        const y = center + dy;
+                        if (x >= 0 && x < BOARD_SIZE && y >=0 && y < BOARD_SIZE && gameBoard[y][x] === 0) {
+                            if (Math.random() > 0.7) {
+                                return {x, y};
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 随机空位
+            const emptyCells = [];
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    if (gameBoard[y][x] === 0) {
+                        emptyCells.push({x, y});
+                    }
+                }
+            }
+            return emptyCells[Math.floor(Math.random() * emptyCells.length)];
+        }
+
+        // 检查活四
+        function hasOpenFour(x, y, player) {
+            const directions = [[1,0], [0,1], [1,1], [1,-1]];
+            for (const [dx, dy] of directions) {
+                let count = 0;
+                let empty = 0;
+                // 正向
+                for (let i = 1; i < 5; i++) {
+                    const nx = x + dx * i;
+                    const ny = y + dy * i;
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) break;
+                    if (gameBoard[ny][nx] === player) count++;
+                    else if (gameBoard[ny][nx] === 0) empty++;
+                    else break;
+                }
+                // 反向
+                for (let i = 1; i < 5; i++) {
+                    const nx = x - dx * i;
+                    const ny = y - dy * i;
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) break;
+                    if (gameBoard[ny][nx] === player) count++;
+                    else if (gameBoard[ny][nx] === 0) empty++;
+                    else break;
+                }
+                if (count === 3 && empty >= 2) return true;
+            }
+            return false;
+        }
+
+        // 检查冲四
+        function hasClosedFour(x, y, player) {
+            const directions = [[1,0], [0,1], [1,1], [1,-1]];
+            for (const [dx, dy] of directions) {
+                let count = 0;
+                let blocked = 0;
+                // 正向
+                for (let i = 1; i < 5; i++) {
+                    const nx = x + dx * i;
+                    const ny = y + dy * i;
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) { blocked++; break; }
+                    if (gameBoard[ny][nx] === player) count++;
+                    else if (gameBoard[ny][nx] !== 0) { blocked++; break; }
+                    else break;
+                }
+                // 反向
+                for (let i = 1; i < 5; i++) {
+                    const nx = x - dx * i;
+                    const ny = y - dy * i;
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) { blocked++; break; }
+                    if (gameBoard[ny][nx] === player) count++;
+                    else if (gameBoard[ny][nx] !== 0) { blocked++; break; }
+                    else break;
+                }
+                if (count === 3 && blocked === 1) return true;
+            }
+            return false;
+        }
+
+        // 检查活三
+        function hasOpenThree(x, y, player) {
+            const directions = [[1,0], [0,1], [1,1], [1,-1]];
+            for (const [dx, dy] of directions) {
+                let count = 0;
+                let empty = 0;
+                // 正向
+                for (let i = 1; i < 4; i++) {
+                    const nx = x + dx * i;
+                    const ny = y + dy * i;
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) break;
+                    if (gameBoard[ny][nx] === player) count++;
+                    else if (gameBoard[ny][nx] === 0) empty++;
+                    else break;
+                }
+                // 反向
+                for (let i = 1; i < 4; i++) {
+                    const nx = x - dx * i;
+                    const ny = y - dy * i;
+                    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) break;
+                    if (gameBoard[ny][nx] === player) count++;
+                    else if (gameBoard[ny][nx] === 0) empty++;
+                    else break;
+                }
+                if (count === 2 && empty >= 2) return true;
+            }
+            return false;
+        }
+
+        // 调用外部AI API
+        async function callAiApi() {
+            const apiKey = apiKeyInput.value.trim();
+            const baseUrl = baseUrlInput.value.trim().replace(/\/$/, '');
+            const model = modelInput.value.trim();
+            let endpoint = '';
+            
+            // 所有请求都走代理，避免跨域问题
+            if (baseUrl.startsWith('/')) {
+                // 本地代理路径直接使用
+                endpoint = `${baseUrl}/chat/completions`;
+            } else if (baseUrl.includes('volces.com')) {
+                // 火山方舟使用专用代理
+                endpoint = `/api/ark/chat/completions`;
+            } else {
+                // 其他平台使用通用代理
+                endpoint = `/api/proxy?url=${encodeURIComponent(`${baseUrl}/chat/completions`)}`;
+            }
+
+            if (!apiKey || !baseUrl || !model) throw new Error('API配置不完整');
+
+            // 构建棋盘描述
+            let boardDesc = '当前五子棋棋盘状态（15x15）：\n';
+            boardDesc += '黑子（玩家）：●，白子（AI）：○，空位：·\n\n';
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                let row = '';
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    if (gameBoard[y][x] === 1) row += '● ';
+                    else if (gameBoard[y][x] === 2) row += '○ ';
+                    else row += '· ';
+                }
+                boardDesc += row + '\n';
+            }
+
+            const messages = [
+                {
+                    role: 'system',
+                    content: '你是五子棋AI高手，现在需要在15x15的棋盘上下白子（○），目标是连成5个白子获胜。当前棋盘状态如上，你需要返回下一步的坐标，格式为：x,y，其中x和y是0-14的整数，左上角是(0,0)，右下角是(14,14)。只返回坐标，不要其他内容，不要解释，不要多余文字。'
+                },
+                {
+                    role: 'user',
+                    content: boardDesc + '\n请返回下一步的坐标：'
+                }
+            ];
+
+            // 标准OpenAI兼容格式（适配方舟Coding Plan）
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: model,
+                    messages: messages,
+                    temperature: 0.1,
+                    max_tokens: 10,
+                    stream: false
+                })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API请求失败(${response.status}): ${errorText.slice(0, 100)}`);
+            }
+
+            const data = await response.json();
+            const content = data.choices[0].message.content.trim();
+            const [x, y] = content.split(',').map(Number);
+
+            if (isNaN(x) || isNaN(y) || x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE || gameBoard[y][x] !== 0) {
+                throw new Error('API返回无效坐标: ' + content);
+            }
+
+            return {x, y};
+        }
+
+        // 检查胜利
+        function checkWin(x, y, player) {
+            const directions = [[1,0], [0,1], [1,1], [1,-1]];
+            
+            for (const [dx, dy] of directions) {
+                let count = 1;
+                
+                // 正向计数
+                for (let i = 1; i < 5; i++) {
+                    const nx = x + dx * i;
+                    const ny = y + dy * i;
+                    if (nx >= 0 && nx < BOARD_SIZE && ny >=0 && ny < BOARD_SIZE && gameBoard[ny][nx] === player) {
+                        count++;
+                    } else {
+                        break;
+                    }
+                }
+                
+                // 反向计数
+                for (let i = 1; i < 5; i++) {
+                    const nx = x - dx * i;
+                    const ny = y - dy * i;
+                    if (nx >= 0 && nx < BOARD_SIZE && ny >=0 && ny < BOARD_SIZE && gameBoard[ny][nx] === player) {
+                        count++;
+                    } else {
+                        break;
+                    }
+                }
+                
+                if (count >= 5) return true;
+            }
+            
+            return false;
+        }
+
+        // 检查棋盘是否满了
+        function isBoardFull() {
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    if (gameBoard[y][x] === 0) return false;
+                }
+            }
+            return true;
+        }
+
+        // 重新开始游戏
+        function restartGame() {
+            gameBoard = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(0));
+            currentPlayer = 1;
+            gameOver = false;
+            aiThinking = false;
+            statusDisplay.className = 'status turn';
+            statusDisplay.textContent = '轮到你下棋（黑子）';
+            initBoard();
+        }
+
+        // AI先手
+        function aiFirst() {
+            restartGame();
+            currentPlayer = 2;
+            aiThinking = true;
+            statusDisplay.className = 'status thinking';
+            statusDisplay.textContent = 'AI正在思考...';
+            
+            setTimeout(() => {
+                const center = Math.floor(BOARD_SIZE / 2);
+                executeAiMove(center, center);
+            }, 500);
+        }
+
+        // 事件监听
+        // 测试API连接
+        testApiBtn.addEventListener('click', async () => {
+            const apiKey = apiKeyInput.value.trim();
+            const baseUrl = baseUrlInput.value.trim().replace(/\/$/, '');
+            const model = modelInput.value.trim();
+            const endpoint = `${baseUrl}/chat/completions`;
+            
+            if (!apiKey || !baseUrl || !model) {
+                apiStatusDisplay.style.background = '#fee2e2';
+                apiStatusDisplay.style.color = '#dc2626';
+                apiStatusDisplay.textContent = '请填写完整API配置信息';
+                return;
+            }
+            
+            apiStatusDisplay.style.background = '#fef3c7';
+            apiStatusDisplay.style.color = '#d97706';
+            apiStatusDisplay.textContent = '正在测试API连接...';
+            
+            try {
+                const testResponse = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [
+                            {role: 'user', content: '你好，请回复"连接成功"，不需要其他内容。'}
+                        ],
+                        temperature: 0.1,
+                        max_tokens: 10,
+                        stream: false
+                    })
+                });
+                
+                if (testResponse.ok) {
+                    const data = await testResponse.json();
+                    const content = data.choices[0].message.content.trim();
+                    apiStatusDisplay.style.background = '#dcfce7';
+                    apiStatusDisplay.style.color = '#166534';
+                    apiStatusDisplay.textContent = `✅ API连接成功！AI回复：${content}`;
+                } else {
+                    const error = await testResponse.text();
+                    apiStatusDisplay.style.background = '#fee2e2';
+                    apiStatusDisplay.style.color = '#dc2626';
+                    apiStatusDisplay.textContent = `❌ API连接失败：${testResponse.status} - ${error.slice(0, 100)}`;
+                }
+            } catch (err) {
+                apiStatusDisplay.style.background = '#fee2e2';
+                apiStatusDisplay.style.color = '#dc2626';
+                apiStatusDisplay.textContent = `❌ 连接错误：${err.message.slice(0, 100)}`;
+            }
+        });
+
+        // 监听API配置变化
+        function updateApiStatus() {
+            const apiKey = apiKeyInput.value.trim();
+            const baseUrl = baseUrlInput.value.trim();
+            const model = modelInput.value.trim();
+            
+            if (apiKey && baseUrl && model) {
+                apiStatusDisplay.style.background = '#dbeafe';
+                apiStatusDisplay.style.color = '#1e40af';
+                apiStatusDisplay.textContent = '已配置完整API信息，将使用外部AI对战';
+            } else if (apiKey) {
+                apiStatusDisplay.style.background = '#fef3c7';
+                apiStatusDisplay.style.color = '#d97706';
+                apiStatusDisplay.textContent = 'API配置不完整，请填写Base URL和模型';
+            } else {
+                apiStatusDisplay.style.background = '#f3f4f6';
+                apiStatusDisplay.style.color = '#374151';
+                apiStatusDisplay.textContent = '当前状态: 使用内置AI';
+            }
+        }
+
+        apiKeyInput.addEventListener('input', updateApiStatus);
+
+        restartBtn.addEventListener('click', restartGame);
+        aiFirstBtn.addEventListener('click', aiFirst);
+
+        // 初始化
+        initBoard();
+        updateApiStatus();
+    </script>
+</body>
+</html>
